@@ -19,11 +19,11 @@
 	Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
-drop function lib_mysqludf_json_info;
-drop function json_array;
-drop function json_members;
-drop function json_object;
-drop function json_values;
+drop function if exists lib_mysqludf_json_info;
+drop function if exists json_array;
+drop function if exists json_members;
+drop function if exists json_object;
+drop function if exists json_values;
 
 create function lib_mysqludf_json_info returns string soname 'lib_mysqludf_json.so';
 create function json_array returns string soname 'lib_mysqludf_json.so';
