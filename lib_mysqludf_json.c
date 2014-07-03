@@ -57,10 +57,14 @@ typedef long long longlong;
 #define JSON_RESULT 127
 #define JSON_PREFIX "json_"
 #define JSON_PREFIX_LENGTH 5
-#define JSON_NAN "NaN"
-#define JSON_NAN_LENGTH 3
+#define JSON_NAN "null" /* NaN doesn't work with ruby JSON.parse, using null */
+#define JSON_NAN_LENGTH 4
 #define JSON_NULL "null"
 #define JSON_NULL_LENGTH 4
+/**
+ * Max 256K for embedding a JSON_RESULT (hopefully this is a good size)
+ */
+#define JSON_RESULT_BUFFER 256*1024
 
 #ifdef __WIN__
 #define HAS_JSON_PREFIX(arg)		(_stricmp(arg,JSON_PREFIX)==0)
@@ -296,153 +300,7 @@ goto reentry;
 	}
 	return *status;
 } 
-/*
- * prepare_json
- */
-my_bool prepare_json(
- 	UDF_ARGS *args
-,	char *message
-,	char type
-,	char* arg_types_ptr
-,	unsigned long* scalar_result_length_ptr
-){
-	my_bool status;
-	unsigned int i;
-	unsigned long string_buffer_length = 0;
-	unsigned long other_buffer_length = 0;
-	
-	if(	type==JSON_OBJECT
-	||	type==JSON_ARRAY){
-		//add 2 for the opening and closing delimiters
-		other_buffer_length += 2;
-	}
-	for(i=0; i<args->arg_count; i++){
-		if(type==JSON_OBJECT){
-			if(is_valid_json_member_name(
-				args->attributes[i]
-			,	&args->attribute_lengths[i]
-			,	message
-			,	&status
-			)!=0){
-				return 1;
-			}
-			//add member name, colon and comma, and enclosing double quotes
-			other_buffer_length += args->attribute_lengths[i] + 1 + 1 + 2; 
-		} else if (type==JSON_ARRAY){
-			//add comma
-			other_buffer_length += 1;
-		}
-		if(type==JSON_MEMBERS
-		&&((i%2)==0)){
-			if(args->arg_type[i]!=STRING_RESULT){
-				//exit with an error if it is not a string type
-				strcpy(
-					message
-				,	"Member name must be a string type."
-				);
-				return 1;
-			} else if(args->args[i]!=NULL){
-				//if it is a constant, check if it is a valid member name
-				if(is_valid_json_member_name(
-					args->args[i]
-				,	&args->lengths[i]
-				,	message
-				,	&status
-				)!=0){
-					return 1;
-				}
-			}
-			//add member name, colon and comma, and enclosing double quotes
-			other_buffer_length += args->attribute_lengths[i] + 1 + 1 + 2; 
-		} else {
-			if (args->arg_type[i]==STRING_RESULT){
-				if (HAS_JSON_PREFIX(args->args[0])){
-					arg_types_ptr[i] = JSON_RESULT;
-					if(args->lengths[i]<JSON_NULL_LENGTH){
-						other_buffer_length += JSON_NULL_LENGTH;
-					} else{
-						other_buffer_length += args->lengths[i]; 
-					} 
-				} else {
-					arg_types_ptr[i] = args->arg_type[i];
-					if(args->lengths[i]<JSON_NULL_LENGTH){
-						other_buffer_length += JSON_NULL_LENGTH;
-					} else{
-						//string buffer length is attribute length 
-						//plus opening and closing delimiters.
-						//however, we need to take escapig into account
-						//in a worst case every character is escaped to a 
-						//2 character escape sequence. 
-						//So, by adding only one delimiter and multiplying 
-						//all string length at the end, we obtain the 
-						//maximum length for the string.
-						string_buffer_length += args->lengths[i] + 1; 
-					} 
-				}				
-				/* mark as JSON */
-			} else {
-				/* copy the type */
-				arg_types_ptr[i] = args->arg_type[i];
-				if(args->lengths[i]<JSON_NAN_LENGTH){
-					other_buffer_length += JSON_NAN_LENGTH;
-				} else{
-					other_buffer_length += args->lengths[i]; 
-				}
-			}
-		}
-	}
-	//calculate final result length
-	*scalar_result_length_ptr = 
-		other_buffer_length 		
-	+	2 * string_buffer_length	//2 * string 
-	;  
-	return 0;
-}
-my_bool json_init2(
-	UDF_INIT *initid
-,	UDF_ARGS *args
-,	char *message
-,	int unsigned type
-){
-	my_bool status = 0;
-	unsigned long scalar_result_length = 0;
-	char* arg_types = NULL;
 
-	if(!(arg_types = (char *)malloc(args->arg_count))){
-		/* Whoops! Pity but we're most likely out of memory */
-		strcpy(
-			message
-		,	"Could not allocate memory (udf: json_init)"
-		);		
-		return 1;
-	}
-	if(prepare_json(
-	 	args
-	,	message
-	,	type
-	,	arg_types
-	,	&scalar_result_length
-	)==0){
-		if ((initid->ptr = malloc(
-			args->arg_count
-		+	scalar_result_length
-		))){
-			memcpy(
-				initid->ptr
-			,	arg_types
-			,	args->arg_count
-			);
-		} else {
-			strcpy(
-				message
-			,	"Could not allocate memory"
-			);		
-			status = 1;
-		}		
-	}
-	free(arg_types);
-	return status;
-}
 
 /*
  * 	json_init
@@ -569,11 +427,8 @@ my_bool json_init(
 					; 
 					break;
 				case JSON_RESULT:
-					buffer_size += args->lengths[i]; 
-					buffer_size += args->lengths[i]<JSON_NULL_LENGTH
-					?	JSON_NULL_LENGTH
-					:	args->lengths[i]
-					; 
+					//buffer_size += args->lengths[i]; 
+					buffer_size += JSON_RESULT_BUFFER; 
 					break;
 				case STRING_RESULT:
 				/* For strings, allocate the advocated maximum length
@@ -602,7 +457,7 @@ my_bool json_init(
 			if ((initid->ptr = malloc(
 				args->arg_count
 			+	buffer_size
-			+	string_buffer_size*2
+			+	string_buffer_size*6
 			))==NULL){
 				/* Whoops! Pity but we're most likely out of memory */
 				strcpy(
@@ -639,6 +494,7 @@ void json_deinit(
 	/* If we allocated memory, free it */
 	if (initid->ptr!=NULL){
 		free(initid->ptr);
+		initid->ptr = NULL;
 	}
 }
 
@@ -655,31 +511,34 @@ void write_json_value(
 ,	char** buffer_ptr		//a pointer to the buffer. This valus is updated to reflect the actual length written
 ){
 	unsigned long i;
+	unsigned char vv;
 	if(value==NULL){				//check if we are writing a NULL value
 		switch(type){				//for objects and strings maps to javascript null
 			case JSON_RESULT:
 			case STRING_RESULT:
 				memcpy(
 					*buffer_ptr
-				,	"null"
-				,	4
+				,	JSON_NULL
+				,	JSON_NULL_LENGTH
 				);
-				*buffer_ptr += 4;
+				*buffer_ptr += JSON_NULL_LENGTH;
 				break;
 			case DECIMAL_RESULT:	//for numbers map to javascript NaN
 			case REAL_RESULT:
 			case INT_RESULT:
 				memcpy(
 					*buffer_ptr
-				,	"NaN"
-				,	3
+				,	JSON_NAN
+				,	JSON_NAN_LENGTH
 				);
-				*buffer_ptr += 3;
+				*buffer_ptr += JSON_NAN_LENGTH;
 				break;
 		}
 	} else {						//not NULL write a real value.
 		switch(type){
 			case JSON_RESULT:		//write as-is for decimal and json values
+				if (length > JSON_RESULT_BUFFER) 
+					length = JSON_RESULT_BUFFER; // don't overflow the buffer
 			case DECIMAL_RESULT:
 				memcpy(
 					*buffer_ptr
@@ -710,7 +569,13 @@ void write_json_value(
 				*buffer_ptr += 1;				
 				//loop through the string to escape metacharacters 
 				for(i=0; i<length; i++){
-					switch (value[i]){
+					vv = value[i];
+					switch (vv){
+						case '\t':
+							*(*buffer_ptr+1) = 't';
+							*(*buffer_ptr)='\\';
+							*buffer_ptr+=2;
+							break;
 						case '\n':							
 							*(*buffer_ptr+1) = 'n';
 							*(*buffer_ptr)='\\';
@@ -723,13 +588,18 @@ void write_json_value(
 							break;
 						case '"':
 						case '\\':
-							*(*buffer_ptr+1) = value[i];
+							*(*buffer_ptr+1) = vv;
 							*(*buffer_ptr)='\\';
 							*buffer_ptr+=2;
 							break;							
 						default:	//by default, copy the character as is
-							*(*buffer_ptr)=value[i];
-							*buffer_ptr += 1;
+							if (vv < 20 || vv > 126) { // non-printable character?
+								sprintf(*buffer_ptr, "\\u%04u", (unsigned int)vv);
+								*buffer_ptr += 6;
+							} else {
+								*(*buffer_ptr)=vv;
+								*buffer_ptr += 1;
+							}
 					}
 				}
 				//closing quote
@@ -1007,9 +877,11 @@ my_bool json_members_init(
 ){
 	my_bool status = 0;
 	int unsigned i;
-	unsigned char* arg_types = NULL;
-	long unsigned buffer_size = 0;
-	long unsigned string_buffer_size = 0;
+	char* arg_types = NULL;
+	// TODO this big buffer is a HACK because I'm not finding
+	// the true fix for the malloc/free crash fast enough
+	int unsigned buffer_size = 0; 
+	int unsigned string_buffer_size = 0;
 	if ((args->arg_count < 2) 
 	||	(args->arg_count % 2)!=0
 	){
@@ -1019,7 +891,7 @@ my_bool json_members_init(
 		);
 		status = 1;
 	} else if(
-		(arg_types = (unsigned char *)malloc(args->arg_count))==NULL
+		(arg_types = (char *)malloc(args->arg_count))==NULL
 	){
 		/* Whoops! Pity but we're most likely out of memory */
 		strcpy(
@@ -1054,11 +926,17 @@ my_bool json_members_init(
 					break;
 				}
 			}
+			arg_types[i]=STRING_RESULT;
 			/*
 			 * Make room for the member name
 			 * 
+			 * name:<value>
+             *
+			 * the addition 2 is to quote the member name as in
+			 * 
+			 * "identifier"
 			 * */
-			buffer_size += args->lengths[i];
+			buffer_size += args->lengths[i] + 2;
 		}
 		if (status==0){
 			/* loop over the value arguments*/
@@ -1068,18 +946,27 @@ my_bool json_members_init(
 						if(HAS_JSON_PREFIX(args->attributes[i])){
 							/* mark as JSON */
 							arg_types[i]=JSON_RESULT;
-							buffer_size += args->lengths[i];
+							//buffer_size += args->lengths[i];
+							buffer_size += JSON_RESULT_BUFFER; 
 						} else {
 							/* copy the type */
 							arg_types[i]=args->arg_type[i];
-							string_buffer_size += args->lengths[i] + 1;
+							string_buffer_size += 
+							(	args->lengths[i]<JSON_NULL_LENGTH
+							?	JSON_NULL_LENGTH
+							:	args->lengths[i]
+							)	+ 1
+							;
 						}
 						break;
 					case INT_RESULT:					
 					case REAL_RESULT:					
 					case DECIMAL_RESULT:					
 						arg_types[i]=args->arg_type[i];
-						buffer_size += args->lengths[i];
+						buffer_size += args->lengths[i]<JSON_NAN_LENGTH
+						?	JSON_NAN_LENGTH
+						:	args->lengths[i]
+						; 
 						break;
 					case ROW_RESULT:
 						abort();
@@ -1087,10 +974,11 @@ my_bool json_members_init(
 				/*this is for the colon and the comma*/
 				buffer_size += 2;
 			}
+			/* Perform the actual allocation of memory */
 			if ((initid->ptr = malloc(
-				(args->arg_count)
+				args->arg_count
 			+	buffer_size
-			+	(2*string_buffer_size)		
+			+	string_buffer_size*6
 			))==NULL){
 				strcpy(
 					message
@@ -1141,4 +1029,3 @@ char* json_members(
 }
 
 #endif /* HAVE_DLOPEN */
-
