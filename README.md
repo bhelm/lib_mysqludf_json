@@ -10,6 +10,19 @@ JSON is particularly useful as a format for data exchange. It is mainly used in 
 
 Usually, database data is mapped to the JSON format downstream of the database. For example, PHP offers an extension to convert PHP data structures to JSON. The disadvantage of that approach is that it usually requires one to iterate through the resultset to create an object structure out of it before that object structure can be encoded into the JSON format. Also, JSON encoding using an UDF is much faster.
 
+###How to build###
+Quick notes how to build this UDF:
+```
+git clone https://github.com/bhelm/lib_mysqludf_json.git
+cd lib_mysqludf_json
+mkdir build
+cd build
+cmake ..
+make
+sudo make install
+```
+
+
 ###General notes of usage###
 
 There are a few things to keep in mind when using these UDF's. The JSON UDFs are designed for ease of use. They were designed with the assumption in mind that in many cases, only a simple and straightforward mapping is required. So, the UDFs try to make simple mappings easy and with as little overhead as possible. At the same time the UDFs will still be useful to generate more complicated mappings.
