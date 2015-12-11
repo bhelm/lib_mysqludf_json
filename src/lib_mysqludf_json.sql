@@ -25,8 +25,8 @@ drop function if exists json_members;
 drop function if exists json_object;
 drop function if exists json_values;
 
-create function lib_mysqludf_json_info returns string soname 'lib_mysqludf_json.so';
-create function json_array returns string soname 'lib_mysqludf_json.so';
-create function json_members returns string soname 'lib_mysqludf_json.so';
-create function json_object returns string soname 'lib_mysqludf_json.so';
-create function json_values returns string soname 'lib_mysqludf_json.so';
+create function lib_mysqludf_json_info returns string soname 'libmysqludf_json.so';
+create function json_array returns string soname 'libmysqludf_json.so';
+create function json_members returns string soname 'libmysqludf_json.so';
+create function json_object returns string soname 'libmysqludf_json.so';
+create function json_values returns string soname 'libmysqludf_json.so';
