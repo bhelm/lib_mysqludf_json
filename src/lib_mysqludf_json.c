@@ -326,6 +326,14 @@ my_bool json_init(
 ,	char *message
 ,	int unsigned type
 ){
+    /* from mysql documentation:
+     * unsigned int max_length
+     * The maximum length of the result. For string functions, the default is the length of the longest argument.
+     * If you want to return a blob value, you can set max_length to 65KB or 16MB. This memory is not allocated,
+     * but the value is used to decide which data type to use if there is a need to temporarily store the data.
+     */
+    initid->max_length = 16*1024*1024;
+
 	my_bool status = 0;
 	/* 
 	 * buffer_size: first used to calculate the fixed length buffer.
